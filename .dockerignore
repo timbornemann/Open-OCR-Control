@@ -1,0 +1,15 @@
+.git
+.github
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+app/static
+docs
+frontend/node_modules
+frontend/coverage
+tests
+*.pyc
+*.tsbuildinfo
+__pycache__
+.env

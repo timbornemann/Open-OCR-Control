@@ -1,0 +1,73 @@
+name: open-ocr-control
+
+services:
+  app:
+    image: open-ocr-control:${APP_TAG:-local}
+    build:
+      context: .
+    ports:
+      - "${APP_BIND:-0.0.0.0}:3011:3011"
+    environment:
+      OCR_BASE_URL: http://unlimited-ocr:8000/v1
+      OCR_MANAGE_CONTAINER: "true"
+      OCR_DOCKER_NETWORK: open-ocr-control
+      OCR_DOCKER_HOST_PORT: "3111"
+      OCR_DATA_DIR: /data/jobs
+      OCR_HF_TOKEN: "${HF_TOKEN:-}"
+    volumes:
+      - ocr-jobs:/data/jobs
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-0}"
+    networks:
+      - ocr
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777,exec
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 45s
+    restart: unless-stopped
+
+  # Optional eager start: `docker compose --profile eager up -d`.
+  # Without the profile, the app creates/starts this fixed container on first use.
+  unlimited-ocr:
+    profiles: ["eager"]
+    image: vllm/vllm-openai:unlimited-ocr
+    container_name: unlimited-ocr
+    command:
+      - baidu/Unlimited-OCR
+      - --trust-remote-code
+      - --logits_processors
+      - vllm.model_executor.models.unlimited_ocr:NGramPerReqLogitsProcessor
+      - --no-enable-prefix-caching
+      - --mm-processor-cache-gb
+      - "0"
+      - --gpu-memory-utilization
+      - "${GPU_MEMORY_UTILIZATION:-0.85}"
+      - --max-model-len
+      - "32768"
+    ports:
+      - "127.0.0.1:3111:8000"
+    environment:
+      HF_XET_HIGH_PERFORMANCE: "1"
+      HF_TOKEN: "${HF_TOKEN:-}"
+    volumes:
+      - unlimited-ocr-cache:/root/.cache/huggingface
+    networks:
+      - ocr
+    gpus: all
+    shm_size: 8gb
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  ocr:
+    name: open-ocr-control
+
+volumes:
+  ocr-jobs:
+  unlimited-ocr-cache:
+    name: unlimited-ocr-cache

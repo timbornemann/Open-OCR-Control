@@ -1,0 +1,48 @@
+# Local environment and secret files
+.env
+.env.*
+!.env.example
+
+# Editors and IDEs
+.idea/
+.vscode/
+
+# Python environments, caches and tooling
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Python coverage reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Python build and package artifacts
+build/
+*.egg-info/
+.eggs/
+dist/
+
+# Generated application assets
+app/static/
+
+# Frontend dependencies and build metadata
+frontend/node_modules/
+frontend/coverage/
+*.tsbuildinfo
+
+# Runtime data and logs
+data/
+*.log
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# The project currently uses pip rather than uv
+uv.lock
