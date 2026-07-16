@@ -7,6 +7,8 @@ Lokale, GPU-beschleunigte Dokumentenerkennung mit
 Bilder und gängige Office-Dateien entgegen, zeigt die Erkennung live im Browser und exportiert
 das Ergebnis als Markdown, Klartext oder JSON.
 
+![Open OCR Control beim Parsen einer PDF mit Live-Seitenfortschritt](images/parsing.gif)
+
 Die Webanwendung wird standardmäßig auf allen Host-Interfaces über **Port 3011** bereitgestellt und
 kann dadurch von anderen Geräten im vertrauenswürdigen lokalen Netzwerk genutzt werden. Der
 vLLM-/Unlimited-OCR-Dienst bleibt lokal und intern auf **Port 3111**. Beide Komponenten sind
@@ -25,6 +27,19 @@ containerisiert; Dokumente und Modellausgaben verbleiben auf dem Host.
 - responsive, barrierearme Oberfläche in Schwarz-/Weiß-/Graustufen
 - Upload-, Seiten-, Zeit-, Render- und Parallelitätsgrenzen gegen Fehlkonfiguration
 - OCI-Image aus GitHub Releases inklusive SBOM und Build-Provenienz
+
+## Oberfläche
+
+### Upload-Arbeitsbereich
+
+![Upload-Arbeitsbereich von Open OCR Control](images/startpage.png)
+
+### Live-Erkennung Seite für Seite
+
+<p>
+  <img src="images/running-ocr.png" alt="Start eines OCR-Auftrags mit Live-Ausgabe der aktuellen Seite" width="49%">
+  <img src="images/running-ocr-2.png" alt="OCR-Auftrag mit mehreren fertig verarbeiteten Seiten" width="49%">
+</p>
 
 ## Voraussetzungen
 

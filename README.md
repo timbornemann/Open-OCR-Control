@@ -7,6 +7,8 @@ Local, GPU-accelerated document recognition powered by
 Office documents, follow recognition live in the browser, and export the result as Markdown,
 plain text, or JSON.
 
+![Open OCR Control parsing a PDF with live page-level progress](docs/images/parsing.gif)
+
 The web application binds to all host interfaces on **port 3011** by default, so other devices on
 the trusted local network can use it. The vLLM/Unlimited-OCR service stays local and internal on
 **port 3111**. Both components are containerized, and documents and model output stay on the host.
@@ -24,6 +26,19 @@ the trusted local network can use it. The vLLM/Unlimited-OCR service stays local
 - Responsive, accessible grayscale interface with a single browser-viewport layout
 - Upload, page, time, render, and concurrency limits to prevent misconfiguration
 - OCI image releases through GitHub, including SBOM and build provenance
+
+## Interface
+
+### Upload workspace
+
+![Open OCR Control upload workspace](docs/images/startpage.png)
+
+### Live page-by-page recognition
+
+<p>
+  <img src="docs/images/running-ocr.png" alt="OCR job starting with live output for the current page" width="49%">
+  <img src="docs/images/running-ocr-2.png" alt="OCR job progressing through multiple completed pages" width="49%">
+</p>
 
 ## Requirements
 
