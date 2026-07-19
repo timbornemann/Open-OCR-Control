@@ -1,4 +1,4 @@
-import type { Job, JobStatus, OcrStatus } from './types'
+import type { Batch, Job, JobStatus, OcrStatus } from './types'
 
 export type Language = 'en' | 'de'
 
@@ -23,8 +23,12 @@ export const COPY = {
     heroBody: 'Turn PDFs, images, and Office documents into clean, structured text with Baidu Unlimited-OCR — entirely on this machine.',
     closeError: 'Dismiss error',
     removeFile: 'Remove file',
+    singleMode: 'Single document',
+    batchMode: 'Batch mode',
     dropFile: 'Drop a file here',
+    dropFiles: 'Drop files here',
     chooseFile: 'or click to browse',
+    chooseFiles: 'or click to select multiple files',
     formats: 'PDF · PNG · JPG · TIFF · DOCX · PPTX · XLSX · up to 100 MB',
     settings: 'Processing settings',
     settingsHint: 'Optimized for speed',
@@ -36,9 +40,12 @@ export const COPY = {
     outputLimit: 'Output limit',
     uploading: 'Uploading…',
     startOcr: 'Start OCR',
+    startBatch: 'Start batch',
     uploadFailed: 'Upload failed',
     modelControlFailed: 'Could not control the OCR container',
+    restoringSession: 'Restoring the current OCR session…',
     currentJob: 'CURRENT JOB',
+    currentBatch: 'BATCH',
     cancel: 'Cancel',
     newFile: 'New file',
     progress: 'Progress',
@@ -46,6 +53,9 @@ export const COPY = {
     page: 'Page',
     preview: 'Preview',
     markdown: 'Markdown',
+    rawMarkdown: 'Raw .md',
+    completeZip: 'Complete .zip',
+    allResultsZip: 'All results .zip',
     copy: 'Copy',
     copied: 'Copied ✓',
     analyzing: 'Unlimited-OCR is analyzing the document…',
@@ -53,6 +63,7 @@ export const COPY = {
     noText: 'No text was recognized.',
     processingLocal: 'Processing stays on this system.',
     api: 'API',
+    files: 'Files',
   },
   de: {
     language: 'Sprache',
@@ -72,8 +83,12 @@ export const COPY = {
     heroBody: 'PDFs, Bilder und Office-Dokumente werden lokal mit Baidu Unlimited-OCR in sauberen, strukturierten Text verwandelt.',
     closeError: 'Fehler schließen',
     removeFile: 'Datei entfernen',
+    singleMode: 'Einzeldokument',
+    batchMode: 'Batch-Modus',
     dropFile: 'Datei hier ablegen',
+    dropFiles: 'Dateien hier ablegen',
     chooseFile: 'oder zum Auswählen klicken',
+    chooseFiles: 'oder mehrere Dateien auswählen',
     formats: 'PDF · PNG · JPG · TIFF · DOCX · PPTX · XLSX · bis 100 MB',
     settings: 'Verarbeitungseinstellungen',
     settingsHint: 'Für Geschwindigkeit optimiert',
@@ -85,9 +100,12 @@ export const COPY = {
     outputLimit: 'Ausgabelimit',
     uploading: 'Wird hochgeladen…',
     startOcr: 'OCR starten',
+    startBatch: 'Batch starten',
     uploadFailed: 'Upload fehlgeschlagen',
     modelControlFailed: 'OCR-Container konnte nicht gesteuert werden',
+    restoringSession: 'Aktuelle OCR-Sitzung wird wiederhergestellt…',
     currentJob: 'AKTUELLER AUFTRAG',
+    currentBatch: 'BATCH',
     cancel: 'Abbrechen',
     newFile: 'Neue Datei',
     progress: 'Fortschritt',
@@ -95,6 +113,9 @@ export const COPY = {
     page: 'Seite',
     preview: 'Vorschau',
     markdown: 'Markdown',
+    rawMarkdown: 'Roh-.md',
+    completeZip: 'Vollständig .zip',
+    allResultsZip: 'Alle Ergebnisse .zip',
     copy: 'Kopieren',
     copied: 'Kopiert ✓',
     analyzing: 'Unlimited-OCR analysiert das Dokument…',
@@ -102,6 +123,7 @@ export const COPY = {
     noText: 'Kein Text erkannt.',
     processingLocal: 'Die Verarbeitung bleibt auf diesem System.',
     api: 'API',
+    files: 'Dateien',
   },
 } as const
 
@@ -151,4 +173,20 @@ export function jobMessage(job: Job, language: Language): string {
     },
   }
   return messages[language][job.status]
+}
+
+export function batchMessage(batch: Batch, language: Language): string {
+  const finished = batch.completed_files + batch.failed_files
+  if (language === 'de') {
+    if (batch.status === 'queued') return 'Batch wurde angenommen.'
+    if (batch.status === 'processing') return `${finished} von ${batch.total_files} Dateien verarbeitet`
+    if (batch.status === 'completed') return `${batch.completed_files} Dateien erfolgreich verarbeitet`
+    if (batch.status === 'cancelled') return 'Batch-Verarbeitung wurde abgebrochen.'
+    return 'Der Batch konnte nicht verarbeitet werden.'
+  }
+  if (batch.status === 'queued') return 'The batch was accepted.'
+  if (batch.status === 'processing') return `${finished} of ${batch.total_files} files processed`
+  if (batch.status === 'completed') return `${batch.completed_files} files processed successfully`
+  if (batch.status === 'cancelled') return 'Batch processing was cancelled.'
+  return 'The batch could not be processed.'
 }

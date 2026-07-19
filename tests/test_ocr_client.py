@@ -9,7 +9,7 @@ from app.services.ocr_client import OcrClient
 
 
 @pytest.mark.asyncio
-async def test_stream_page_sends_required_recipe_and_cleans_output(tmp_path: Path) -> None:
+async def test_stream_page_sends_required_recipe_and_preserves_grounding(tmp_path: Path) -> None:
     image = tmp_path / "page.jpg"
     image.write_bytes(b"fake-jpeg")
     captured: dict[str, object] = {}
@@ -35,7 +35,7 @@ async def test_stream_page_sends_required_recipe_and_cleans_output(tmp_path: Pat
 
     output = "".join([chunk async for chunk in client.stream_page(image, 4096)])
 
-    assert output == "Hallo Welt"
+    assert output == "<|ref|>Hallo Welt<|/ref|><|det|>[1,2]<|/det|>"
     assert captured["skip_special_tokens"] is False
     assert captured["vllm_xargs"] == {"ngram_size": 35, "window_size": 128}
     messages = captured["messages"]

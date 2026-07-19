@@ -15,9 +15,16 @@ gerenderte Seiten liegen in zufälligen Verzeichnissen eines Docker-Volumes. Abg
 Verzeichnisse werden beim Start gelöscht; Standardretention ist 24 Stunden. Nutzer exportieren
 dauerhafte Ergebnisse explizit.
 
+Der Browser speichert ausschließlich die aktive Job- oder Batch-ID und gegebenenfalls den
+ausgewählten Dokument-Tab. Nach einem Seiten-Neuladen wird der aktuelle API-Snapshot geladen und
+der SSE-Stream ab dessen letzter Event-ID fortgesetzt. Die eigentlichen Dokumentdaten und
+Ergebnisse werden nicht in `localStorage` dupliziert.
+
 ## Folgen
 
 - Keine Datenbank, schnelle Zustandsupdates und kleiner Betriebsumfang.
+- Browser-Neuladen erhält laufende Verarbeitung, fertige Ergebnisse und Tab-Auswahl, solange der
+  App-Prozess weiterläuft.
 - Ein App-Neustart beendet die UI-Verfügbarkeit alter Ergebnisse, auch wenn Dateien bis zur
   Bereinigung noch existieren.
 - Mehrprozess-/Mehrreplikabetrieb ist ausgeschlossen und wird dokumentiert.

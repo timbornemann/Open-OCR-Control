@@ -61,8 +61,12 @@ Der Socket ist die größte Vertrauensgrenze des Systems. Für einen gehärteten
 - Shared Memory: 8 GB für den Modellcontainer.
 - App-Temp: Compose stellt 1 GB `/tmp` bereit; große Office-Konvertierungen liegen unter
   `/data/jobs`.
-- Disk: Das Modellvolume kann mehrere GB belegen. Jobs werden standardmäßig nach 24 Stunden beim
-  Neustart bereinigt.
+- Disk: Das Modellvolume kann mehrere GB belegen. Gerenderte Seiten, extrahierte Bildbereiche und
+  erzeugte ZIPs liegen im Jobvolume. Jobs werden standardmäßig nach 24 Stunden beim Neustart
+  bereinigt.
+- Batches: Dokumente laufen absichtlich nacheinander; die Seitenparallelität gilt nur im jeweils
+  aktiven Dokument. Dadurch summieren sich Uploadgröße und Laufzeit, nicht jedoch die
+  Dokumentparallelität.
 
 ## Fehlerdiagnose
 
@@ -93,6 +97,15 @@ Die App setzt die drei Upstream-Pflichtwerte automatisch: `<image>`-Prompt,
 `skip_special_tokens=false` und den registrierten N-Gram-Prozessor. Prüfe, ob der vorhandene
 `unlimited-ocr`-Container wirklich mit dem Compose-/README-Kommando erstellt wurde; ein alter,
 anders konfigurierter Container sollte nach Sicherung des Caches entfernt und neu angelegt werden.
+
+### Abbildungen fehlen in Vorschau oder ZIP
+
+Die Anwendung übernimmt nur Bereiche, die Unlimited-OCR ausdrücklich mit dem Label `image` und
+einer gültigen Grounding-Box markiert. Diagramme, Vektorgrafiken oder dekorative Elemente können
+vom Modell stattdessen ausgelassen oder ausschließlich als Text erkannt werden. Prüfe den
+Roh-Markdown-Export und teste bei kleinen oder unklaren Abbildungen eine höhere Renderqualität.
+Das vollständige ZIP enthält erkannte Bilder unter `assets/`; die rohe `.md`-Datei enthält
+absichtlich keine Binärdateien.
 
 ## Backup und Update
 

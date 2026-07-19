@@ -5,7 +5,7 @@
 Lokale, GPU-beschleunigte Dokumentenerkennung mit
 [Baidu Unlimited-OCR](https://huggingface.co/baidu/Unlimited-OCR). Die Anwendung nimmt PDFs,
 Bilder und gängige Office-Dateien entgegen, zeigt die Erkennung live im Browser und exportiert
-das Ergebnis als Markdown, Klartext oder JSON.
+Roh-Markdown oder ein vollständiges, portables ZIP einschließlich erkannter Dokumentbilder.
 
 ![Open OCR Control beim Parsen einer PDF mit Live-Seitenfortschritt](images/parsing.gif)
 
@@ -19,10 +19,13 @@ containerisiert; Dokumente und Modellausgaben verbleiben auf dem Host.
 - englische Standardoberfläche mit dauerhaft gespeicherter Umschaltung auf Deutsch
 - Drag-and-drop für PDF, PNG, JPEG, WebP, BMP, TIFF, DOC(X), ODT, RTF, PPT(X), XLS(X) und ODS
 - Live-Streaming pro Seite über Server-Sent Events
+- automatische Wiederherstellung laufender und fertiger Aufträge nach einem Browser-Neuladen
 - parallele, geordnete Seitenverarbeitung mit einstellbarer Geschwindigkeit und Qualität
 - bereinigte Rich-Preview für Markdown, HTML-/GFM-Tabellen und LaTeX-Formeln
+- lokale Vorschau der vom Modell markierten Bildbereiche samt Bildern im vollständigen ZIP
+- sequenzieller Batch-Modus mit mehreren Uploads, Dokument-Tabs und gemeinsamem ZIP
 - viewportfüllender Arbeitsbereich mit automatisch mitlaufender aktueller Seitenanzeige
-- Kopieren sowie Export als `.md`, `.txt` und strukturiertes `.json`
+- Kopieren sowie Export als rohe `.md`, vollständige `.zip`, `.txt` und strukturiertes `.json`
 - bedarfsgesteuertes Starten und Stoppen des festen Unlimited-OCR-Containers
 - responsive, barrierearme Oberfläche in Schwarz-/Weiß-/Graustufen
 - Upload-, Seiten-, Zeit-, Render- und Parallelitätsgrenzen gegen Fehlkonfiguration
@@ -109,12 +112,16 @@ Das GPU-Modell bleibt absichtlich ein separates Upstream-Image.
 2. Office-Dateien werden headless mit LibreOffice in PDF konvertiert.
 3. PDFs werden standardmäßig mit 200 DPI seitenweise als hochwertige JPEGs gerendert.
 4. Zwei Seiten werden standardmäßig parallel an `/v1/chat/completions` gesendet.
-5. Die Modellantwort wird live gestreamt. Grounding-Koordinaten werden entfernt, strukturierte
-   Ausgabe bleibt erhalten.
-6. Die Vorschau bereinigt eingebettetes HTML, rendert Tabellen und setzt unterstützte Formeln mit
-   KaTeX.
-7. Ergebnisse stehen bis zum Neustart in der UI; Arbeitsverzeichnisse werden nach 24 Stunden beim
-   nächsten App-Start gelöscht.
+5. Die Modellantwort wird live gestreamt. Bildmarkierungen werden von den normalisierten
+   Modellkoordinaten auf lokale Ausschnitte der gerenderten Seite abgebildet; andere
+   Grounding-Koordinaten werden entfernt.
+6. Roh-Markdown bleibt separat erhalten. Die Rich-Preview bereinigt eingebettetes HTML, rendert
+   Tabellen und lokale Bilder und setzt unterstützte Formeln mit KaTeX.
+7. Dokumente eines Batches werden nacheinander verarbeitet; innerhalb des aktiven Dokuments gilt
+   weiterhin die eingestellte Seitenparallelität.
+8. Der Browser speichert nur die aktive Job-/Batch-ID und lädt nach einem Neuladen den aktuellen
+   Serverzustand sowie den Live-Stream wieder. Ergebnisse stehen bis zum Neustart des App-Prozesses
+   bereit; Arbeitsverzeichnisse werden nach 24 Stunden beim nächsten App-Start gelöscht.
 
 Die seitenweise Strategie ist bei langen PDFs robuster als ein einziger Multi-Page-Request: jede
 Seite erhält ihr eigenes Tokenbudget, Fortschritt wird sofort sichtbar und ein Fehler betrifft nur
@@ -126,7 +133,9 @@ Unlimited-OCR kann GFM-Markdown, rohe HTML-Tabellen und verschiedene Mathematikd
 Die Vorschau unterstützt `$…$`, `$$…$$`, `\(…\)`, `\[…\]` und OCR-typische mathematische Klammern,
 wenn deren Inhalt eindeutig mathematische Syntax enthält. Roh-HTML wird in einen Syntaxbaum
 übernommen und bereinigt, bevor React oder KaTeX es verarbeitet; Skripte, Event-Handler und vom
-Modell gelieferte Styles werden entfernt.
+Modell gelieferte Styles und externe Bilder werden entfernt. Extrahierte Abbildungen werden nur
+über die auftragsspezifische API ausgeliefert. Roh-Markdown bleibt modellnah, während das
+vollständige ZIP Bildlinks in portable `assets/`-Pfade umschreibt.
 
 Die Entscheidung ist in
 [ADR 0005: Sichere Rich-Preview](adrs/0005-secure-rich-preview.md) dokumentiert.
@@ -145,6 +154,8 @@ Alle App-Variablen beginnen mit `OCR_`. Die wichtigsten Werte:
 | `OCR_HF_TOKEN` | leer | optionaler Hugging-Face-Token für höhere Rate-Limits |
 | `OCR_HF_XET_HIGH_PERFORMANCE` | `true` | parallelen Modelldownload maximieren |
 | `OCR_MAX_UPLOAD_MB` | `100` | maximales Uploadvolumen |
+| `OCR_MAX_BATCH_FILES` | `25` | maximale Dokumentzahl in einem Batch |
+| `OCR_MAX_BATCH_UPLOAD_MB` | `500` | maximales Gesamtvolumen eines Batches |
 | `OCR_MAX_PAGES` | `200` | maximale Seitenzahl je Auftrag |
 | `OCR_MAX_RENDER_MEGAPIXELS` | `50` | Dekompressions-/Renderlimit je Seite |
 | `OCR_DEFAULT_DPI` | `200` | Standard-Renderqualität (150–300) |
@@ -222,15 +233,25 @@ OpenAPI/Swagger: [http://localhost:3011/api/docs](http://localhost:3011/api/docs
 | `GET` | `/api/jobs/{id}` | Auftragszustand und Ergebnisse |
 | `GET` | `/api/jobs/{id}/events` | Live-SSE-Stream |
 | `DELETE` | `/api/jobs/{id}` | Auftrag abbrechen |
-| `GET` | `/api/jobs/{id}/export?format=markdown` | Ergebnis exportieren |
+| `GET` | `/api/jobs/{id}/assets/{name}` | extrahiertes Bild ausliefern |
+| `GET` | `/api/jobs/{id}/export?format=markdown` | Roh-Markdown, Text, JSON oder vollständiges ZIP exportieren |
+| `POST` | `/api/batches` | mehrere Multipart-Dateien annehmen |
+| `GET` | `/api/batches/{id}` | Batch- und Dokumentzustände liefern |
+| `GET` | `/api/batches/{id}/events` | zusammengefasste Batch-/Job-SSE-Events streamen |
+| `DELETE` | `/api/batches/{id}` | Batch und verbleibende Dokumente abbrechen |
+| `GET` | `/api/batches/{id}/export` | alle Ergebnisse als strukturiertes ZIP exportieren |
 
 ## Grenzen
 
 - OCR-Ergebnisse können Erkennungsfehler enthalten und müssen bei kritischen Daten geprüft werden.
-- Aufträge sind bewusst prozesslokal. Mehrere App-Replikate oder Neustart-Fortsetzung benötigen
-  einen externen Job Store.
+- Aufträge sind bewusst prozesslokal. Ein Browser-Neuladen wird wiederhergestellt; ein Neustart des
+  App-Containers, mehrere Replikate oder dauerhafte Fortsetzung benötigen einen externen Job Store.
 - Sehr komplexe Seiten können mehr als 8192 Ausgabetokens benötigen; das Limit ist in der UI
   anpassbar.
+- Nur von Unlimited-OCR ausdrücklich als `image` markierte Bereiche werden extrahiert. Eine
+  fehlende oder ungenaue Grounding-Box kann daher eine Abbildung auslassen oder falsch zuschneiden.
+- Rohe `.md`-Dateien enthalten absichtlich keine Binärdateien; für portables Markdown samt Bildern
+  dient das vollständige ZIP.
 - Passwortgeschützte PDFs werden abgelehnt.
 - Die App ist für vertrauenswürdige lokale Netze gedacht und bringt keine Benutzeranmeldung mit.
 
@@ -241,7 +262,9 @@ Die Integration folgt dem offiziellen
 `<image>`, `skip_special_tokens=false`, N-Gram-Prozessor mit Größe 35/Fenster 128 und deaktivierte
 Prefix-/MM-Processor-Caches. Das
 [Baidu Model Card](https://huggingface.co/baidu/Unlimited-OCR) bestätigt Markdown-Ausgabe, 32.768
-Kontexttokens sowie die offiziellen Dockerimages.
+Kontexttokens, die offiziellen Dockerimages und das Visualisierungsformat für erkannte
+Bildbereiche. Zuschneiden und Verlinken orientieren sich an Baidus offizieller
+`save_results`-Implementierung.
 
 ## Lizenz
 

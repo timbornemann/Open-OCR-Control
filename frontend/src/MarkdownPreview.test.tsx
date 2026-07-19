@@ -32,4 +32,21 @@ describe('MarkdownPreview', () => {
     expect(container.querySelectorAll('.katex')).toHaveLength(1)
     expect(screen.getByText('\\(literal\\)')).toBeInTheDocument()
   })
+
+  it('renders same-origin extracted document images', () => {
+    render(
+      <MarkdownPreview>{'![Page image](/api/jobs/job-1/assets/page-0001-image-001.jpg)'}</MarkdownPreview>,
+    )
+
+    expect(screen.getByRole('img', { name: 'Page image' })).toHaveAttribute(
+      'src',
+      '/api/jobs/job-1/assets/page-0001-image-001.jpg',
+    )
+  })
+
+  it('blocks model-provided external image sources', () => {
+    render(<MarkdownPreview>{'![Remote](https://example.com/tracker.png)'}</MarkdownPreview>)
+
+    expect(screen.queryByRole('img', { name: 'Remote' })).not.toBeInTheDocument()
+  })
 })

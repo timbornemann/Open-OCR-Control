@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -32,7 +33,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         chunks = [
             "# Erkannter Titel\n\n<|ref|>Lokaler OCR-Test<|/ref|>",
-            "<|det|>[[1,2,3,4]]<|/det|>\n\n| A | B |\n|---|---|\n| 1 | 2 |",
+            "<|det|>[[1,2,3,4]]<|/det|>\n\n"
+            "<|ref|>image<|/ref|><|det|>[[100,200,600,650]]<|/det|>\n\n"
+            "| A | B |\n|---|---|\n| 1 | 2 |",
         ]
         for chunk in chunks:
             event = json.dumps({"choices": [{"delta": {"content": chunk}}]})
@@ -46,4 +49,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", 8000), Handler).serve_forever()  # noqa: S104
+    port = int(os.environ.get("MOCK_OCR_PORT", "8000"))
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()  # noqa: S104

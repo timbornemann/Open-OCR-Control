@@ -20,7 +20,14 @@ export function combinePages(pages: PageResult[]): string {
     .join('\n\n---\n\n')
 }
 
+export function combineRawPages(pages: PageResult[]): string {
+  return pages
+    .filter((page) => (page.raw_markdown || page.markdown).trim())
+    .sort((a, b) => a.page - b.page)
+    .map((page) => (page.raw_markdown || page.markdown).trim())
+    .join('\n\n---\n\n')
+}
+
 export function parseEvent<T>(event: Event): T {
   return JSON.parse((event as MessageEvent<string>).data) as T
 }
-

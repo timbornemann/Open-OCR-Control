@@ -10,7 +10,6 @@ from typing import Any
 import httpx
 
 from app.config import Settings
-from app.services.output_filter import GroundingTokenFilter
 
 
 class OcrServiceError(RuntimeError):
@@ -64,8 +63,6 @@ class OcrClient:
             "skip_special_tokens": False,
             "vllm_xargs": {"ngram_size": 35, "window_size": 128},
         }
-        cleaner = GroundingTokenFilter()
-
         try:
             async with self._client() as client:
                 async with client.stream("POST", "/chat/completions", json=payload) as response:
@@ -87,12 +84,8 @@ class OcrClient:
                             raise OcrServiceError(
                                 "Der OCR-Dienst hat einen ungültigen Stream geliefert."
                             ) from exc
-                        cleaned = cleaner.feed(delta)
-                        if cleaned:
-                            yield cleaned
-                    remainder = cleaner.finish()
-                    if remainder:
-                        yield remainder
+                        if delta:
+                            yield delta
         except httpx.TimeoutException as exc:
             raise OcrServiceError("Zeitüberschreitung beim OCR-Dienst.") from exc
         except httpx.HTTPError as exc:

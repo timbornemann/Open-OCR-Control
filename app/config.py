@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     hf_xet_high_performance: bool = True
 
     max_upload_mb: int = 100
+    max_batch_files: int = 25
+    max_batch_upload_mb: int = 500
     max_pages: int = 200
     max_render_megapixels: int = 50
     default_dpi: int = 200
@@ -57,6 +59,10 @@ class Settings(BaseSettings):
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
+
+    @property
+    def max_batch_upload_bytes(self) -> int:
+        return self.max_batch_upload_mb * 1024 * 1024
 
     @property
     def ocr_root_url(self) -> str:

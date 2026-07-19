@@ -1,14 +1,42 @@
 import { ChangeEvent, DragEvent, FormEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { COPY, LANGUAGE_STORAGE_KEY, initialLanguage, jobMessage, modelMessage, statusLabel, type Language } from './i18n'
-import type { Job, OcrStatus, PageResult } from './types'
-import { combinePages, formatFileSize, parseEvent } from './utils'
+import { COPY, LANGUAGE_STORAGE_KEY, batchMessage, initialLanguage, jobMessage, modelMessage, statusLabel, type Language } from './i18n'
+import type { Batch, Job, OcrStatus, PageAsset, PageResult } from './types'
+import { combinePages, combineRawPages, formatFileSize, parseEvent } from './utils'
 
 const ACCEPTED = '.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.doc,.docx,.odt,.rtf,.ppt,.pptx,.xls,.xlsx,.ods'
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
 const MarkdownPreview = lazy(() => import('./MarkdownPreview'))
+export const SESSION_STORAGE_KEY = 'open-ocr-control-session'
+
+type StoredSession =
+  | { kind: 'job'; id: string }
+  | { kind: 'batch'; id: string; selected_job_id: string | null }
+
+function readStoredSession(): StoredSession | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) ?? 'null') as Partial<StoredSession> | null
+    if (!parsed || typeof parsed.id !== 'string') return null
+    if (parsed.kind === 'job') return { kind: 'job', id: parsed.id }
+    if (parsed.kind === 'batch') {
+      return {
+        kind: 'batch',
+        id: parsed.id,
+        selected_job_id: typeof parsed.selected_job_id === 'string' ? parsed.selected_job_id : null,
+      }
+    }
+  } catch {
+    localStorage.removeItem(SESSION_STORAGE_KEY)
+  }
+  return null
+}
+
+function storeSession(session: StoredSession | null): void {
+  if (session) localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session))
+  else localStorage.removeItem(SESSION_STORAGE_KEY)
+}
 
 function emptyPage(page: number): PageResult {
-  return { page, status: 'pending', markdown: '', error: null, elapsed_seconds: null }
+  return { page, status: 'pending', markdown: '', raw_markdown: '', assets: [], error: null, elapsed_seconds: null }
 }
 
 async function apiError(response: Response): Promise<string> {
@@ -23,8 +51,10 @@ async function apiError(response: Response): Promise<string> {
 function App() {
   const [language, setLanguage] = useState<Language>(() => initialLanguage())
   const [ocr, setOcr] = useState<OcrStatus | null>(null)
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
+  const [uploadMode, setUploadMode] = useState<'single' | 'batch'>('single')
   const [job, setJob] = useState<Job | null>(null)
+  const [batch, setBatch] = useState<Batch | null>(null)
   const [error, setError] = useState('')
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -35,11 +65,18 @@ function App() {
   const [dpi, setDpi] = useState(200)
   const [concurrency, setConcurrency] = useState(2)
   const [maxTokens, setMaxTokens] = useState(8192)
+  const [storedSession] = useState<StoredSession | null>(() => readStoredSession())
+  const [sessionReady, setSessionReady] = useState(() => storedSession === null)
   const eventSource = useRef<EventSource | null>(null)
+  const selectedJobId = useRef<string | null>(null)
   const fileInput = useRef<HTMLInputElement | null>(null)
   const pageStrip = useRef<HTMLDivElement | null>(null)
   const resultContent = useRef<HTMLDivElement | null>(null)
   const text = COPY[language]
+
+  useEffect(() => {
+    selectedJobId.current = job?.id ?? null
+  }, [job?.id])
 
   useEffect(() => {
     document.documentElement.lang = language
@@ -74,55 +111,93 @@ function App() {
     }
   }, [job?.completed_pages, job?.failed_pages, job?.status, job?.total_pages])
 
-  const updatePage = useCallback((pageNumber: number, update: (page: PageResult) => PageResult) => {
-    setJob((current) => {
-      if (!current) return current
+  const mutateJob = useCallback((jobId: string, update: (value: Job) => Job) => {
+    setJob((current) => current?.id === jobId ? update(current) : current)
+    setBatch((current) => current ? {
+      ...current,
+      jobs: current.jobs.map((item) => item.id === jobId ? update(item) : item),
+    } : current)
+  }, [])
+
+  const updatePage = useCallback((jobId: string, pageNumber: number, update: (page: PageResult) => PageResult) => {
+    mutateJob(jobId, (current) => {
       const pages = [...current.pages]
       while (pages.length < Math.max(current.total_pages, pageNumber)) pages.push(emptyPage(pages.length + 1))
       pages[pageNumber - 1] = update(pages[pageNumber - 1])
       return { ...current, pages }
     })
-  }, [])
+  }, [mutateJob])
 
   const loadJob = useCallback(async (jobId: string) => {
     const response = await fetch(`/api/jobs/${jobId}`)
-    if (response.ok) setJob((await response.json()) as Job)
+    if (response.ok) {
+      const loaded = (await response.json()) as Job
+      mutateJob(jobId, () => loaded)
+    }
+  }, [mutateJob])
+
+  const loadBatch = useCallback(async (batchId: string) => {
+    const response = await fetch(`/api/batches/${batchId}`)
+    if (!response.ok) return
+    const loaded = (await response.json()) as Batch
+    setBatch(loaded)
+    setJob((current) => loaded.jobs.find((item) => item.id === current?.id) ?? loaded.jobs[0] ?? null)
   }, [])
 
-  const connectEvents = useCallback((jobId: string) => {
-    eventSource.current?.close()
-    const source = new EventSource(`/api/jobs/${jobId}/events`)
-    eventSource.current = source
-
-    const updateStatus = (event: Event) => {
-      const data = parseEvent<Partial<Job>>(event)
-      setJob((current) => {
-        if (!current) return current
+  const handleJobEvent = useCallback((jobId: string, name: string, payload: unknown) => {
+    if (name === 'job_status' || name === 'job_progress') {
+      const data = payload as Partial<Job>
+      mutateJob(jobId, (current) => {
         const total = data.total_pages ?? current.total_pages
         const pages = [...current.pages]
         while (pages.length < total) pages.push(emptyPage(pages.length + 1))
         return { ...current, ...data, pages }
       })
+      return
     }
-    for (const name of ['job_status', 'job_progress']) source.addEventListener(name, updateStatus)
+    if (name === 'page_started') {
+      const data = payload as { page: number }
+      if (selectedJobId.current === jobId) setActivePage(data.page)
+      updatePage(jobId, data.page, (page) => ({ ...page, status: 'processing' }))
+      return
+    }
+    if (name === 'page_delta') {
+      const data = payload as { page: number; delta: string }
+      updatePage(jobId, data.page, (page) => ({ ...page, markdown: page.markdown + data.delta }))
+      return
+    }
+    if (name === 'page_completed') {
+      const data = payload as {
+        page: number
+        markdown: string
+        raw_markdown: string
+        assets: PageAsset[]
+        elapsed_seconds: number
+      }
+      updatePage(jobId, data.page, (page) => ({
+        ...page,
+        status: 'completed',
+        markdown: data.markdown,
+        raw_markdown: data.raw_markdown,
+        assets: data.assets,
+        elapsed_seconds: data.elapsed_seconds,
+      }))
+      return
+    }
+    if (name === 'page_failed') {
+      const data = payload as { page: number; error: string }
+      updatePage(jobId, data.page, (page) => ({ ...page, status: 'failed', error: data.error }))
+    }
+  }, [mutateJob, updatePage])
 
-    source.addEventListener('page_started', (event) => {
-      const data = parseEvent<{ page: number }>(event)
-      setActivePage(data.page)
-      updatePage(data.page, (page) => ({ ...page, status: 'processing' }))
-    })
-    source.addEventListener('page_delta', (event) => {
-      const data = parseEvent<{ page: number; delta: string }>(event)
-      updatePage(data.page, (page) => ({ ...page, markdown: page.markdown + data.delta }))
-    })
-    source.addEventListener('page_completed', (event) => {
-      const data = parseEvent<{ page: number; markdown: string; elapsed_seconds: number }>(event)
-      updatePage(data.page, (page) => ({ ...page, status: 'completed', markdown: data.markdown, elapsed_seconds: data.elapsed_seconds }))
-    })
-    source.addEventListener('page_failed', (event) => {
-      const data = parseEvent<{ page: number; error: string }>(event)
-      updatePage(data.page, (page) => ({ ...page, status: 'failed', error: data.error }))
-    })
+  const connectEvents = useCallback((jobId: string, lastEventId = 0) => {
+    eventSource.current?.close()
+    const source = new EventSource(`/api/jobs/${jobId}/events?after_event_id=${lastEventId}`)
+    eventSource.current = source
+
+    for (const name of ['job_status', 'job_progress', 'page_started', 'page_delta', 'page_completed', 'page_failed']) {
+      source.addEventListener(name, (event) => handleJobEvent(jobId, name, parseEvent<unknown>(event)))
+    }
     for (const name of ['completed', 'failed', 'cancelled']) {
       source.addEventListener(name, () => {
         source.close()
@@ -133,37 +208,137 @@ function App() {
     source.onerror = () => {
       // Native EventSource reconnects automatically while a job is active.
     }
-  }, [loadJob, refreshOcr, updatePage])
+  }, [handleJobEvent, loadJob, refreshOcr])
 
-  const chooseFile = (selected: File | null) => {
+  const connectBatchEvents = useCallback((batchId: string, lastEventId = 0) => {
+    eventSource.current?.close()
+    const source = new EventSource(`/api/batches/${batchId}/events?after_event_id=${lastEventId}`)
+    eventSource.current = source
+
+    const updateBatch = (event: Event) => {
+      const data = parseEvent<Partial<Batch>>(event)
+      setBatch((current) => current ? { ...current, ...data, jobs: current.jobs } : current)
+    }
+    for (const name of ['batch_status', 'batch_progress']) source.addEventListener(name, updateBatch)
+    source.addEventListener('job_event', (event) => {
+      const data = parseEvent<{ job_id: string; event: string; data: unknown }>(event)
+      handleJobEvent(data.job_id, data.event, data.data)
+    })
+    for (const name of ['completed', 'failed', 'cancelled']) {
+      source.addEventListener(name, () => {
+        source.close()
+        void loadBatch(batchId)
+        void refreshOcr()
+      })
+    }
+    source.onerror = () => {
+      // Native EventSource reconnects automatically while a batch is active.
+    }
+  }, [handleJobEvent, loadBatch, refreshOcr])
+
+  useEffect(() => {
+    if (!storedSession) return
+    let active = true
+
+    const restore = async () => {
+      try {
+        const response = await fetch(
+          storedSession.kind === 'batch'
+            ? `/api/batches/${storedSession.id}`
+            : `/api/jobs/${storedSession.id}`,
+        )
+        if (!active) return
+        if (!response.ok) {
+          if (response.status === 404) storeSession(null)
+          return
+        }
+        if (storedSession.kind === 'batch') {
+          const restored = (await response.json()) as Batch
+          if (!active) return
+          const selected = restored.jobs.find((item) => item.id === storedSession.selected_job_id)
+            ?? restored.jobs[0]
+            ?? null
+          setBatch(restored)
+          setJob(selected)
+          selectedJobId.current = selected?.id ?? null
+          if (!TERMINAL.has(restored.status)) connectBatchEvents(restored.id, restored.last_event_id)
+        } else {
+          const restored = (await response.json()) as Job
+          if (!active) return
+          setBatch(null)
+          setJob(restored)
+          selectedJobId.current = restored.id
+          if (!TERMINAL.has(restored.status)) connectEvents(restored.id, restored.last_event_id)
+        }
+      } catch {
+        // Keep the stored ID so a later reload can retry when the server is reachable again.
+      } finally {
+        if (active) setSessionReady(true)
+      }
+    }
+
+    void restore()
+    return () => { active = false }
+  }, [connectBatchEvents, connectEvents, storedSession])
+
+  useEffect(() => {
+    if (!sessionReady) return
+    if (batch && job) {
+      storeSession({ kind: 'batch', id: batch.id, selected_job_id: job.id })
+    } else if (job) {
+      storeSession({ kind: 'job', id: job.id })
+    } else {
+      storeSession(null)
+    }
+  }, [batch?.id, job?.id, sessionReady])
+
+  const chooseFiles = (selected: File[]) => {
+    storeSession(null)
     setError('')
     setJob(null)
-    setFile(selected)
+    setBatch(null)
+    setFiles(uploadMode === 'single' ? selected.slice(0, 1) : selected)
   }
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setDragging(false)
-    chooseFile(event.dataTransfer.files[0] ?? null)
+    chooseFiles(Array.from(event.dataTransfer.files))
   }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!file) return
+    if (files.length === 0) return
     setUploading(true)
     setError('')
     const body = new FormData()
-    body.append('file', file)
+    if (uploadMode === 'batch') {
+      for (const selected of files) body.append('files', selected)
+    } else {
+      body.append('file', files[0])
+    }
     body.append('dpi', String(dpi))
     body.append('page_concurrency', String(concurrency))
     body.append('max_tokens', String(maxTokens))
     try {
-      const response = await fetch('/api/jobs', { method: 'POST', body })
+      const response = await fetch(uploadMode === 'batch' ? '/api/batches' : '/api/jobs', { method: 'POST', body })
       if (!response.ok) throw new Error(await apiError(response))
-      const created = (await response.json()) as Job
       setActivePage(1)
-      setJob(created)
-      connectEvents(created.id)
+      if (uploadMode === 'batch') {
+        const created = (await response.json()) as Batch
+        setBatch(created)
+        setJob(created.jobs[0] ?? null)
+        selectedJobId.current = created.jobs[0]?.id ?? null
+        storeSession({ kind: 'batch', id: created.id, selected_job_id: created.jobs[0]?.id ?? null })
+        connectBatchEvents(created.id, created.last_event_id)
+      } else {
+        const created = (await response.json()) as Job
+        setBatch(null)
+        setJob(created)
+        selectedJobId.current = created.id
+        storeSession({ kind: 'job', id: created.id })
+        connectEvents(created.id, created.last_event_id)
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : text.uploadFailed)
     } finally {
@@ -187,30 +362,48 @@ function App() {
 
   const cancel = async () => {
     if (!job) return
-    const response = await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' })
-    if (response.ok) setJob((await response.json()) as Job)
+    const response = await fetch(batch ? `/api/batches/${batch.id}` : `/api/jobs/${job.id}`, { method: 'DELETE' })
+    if (response.ok) {
+      if (batch) {
+        const cancelled = (await response.json()) as Batch
+        setBatch(cancelled)
+        setJob(cancelled.jobs.find((item) => item.id === job.id) ?? cancelled.jobs[0] ?? null)
+      } else {
+        setJob((await response.json()) as Job)
+      }
+    }
     eventSource.current?.close()
   }
 
   const result = useMemo(() => combinePages(job?.pages ?? []), [job?.pages])
-  const busy = job ? !TERMINAL.has(job.status) : false
+  const rawResult = useMemo(() => combineRawPages(job?.pages ?? []), [job?.pages])
+  const busy = batch ? !TERMINAL.has(batch.status) : job ? !TERMINAL.has(job.status) : false
   const hasResult = result.length > 0
+  const batchHasResult = batch?.jobs.some((item) => combinePages(item.pages).length > 0) ?? false
 
   const copyResult = async () => {
-    await navigator.clipboard.writeText(result)
+    await navigator.clipboard.writeText(rawResult)
     setCopied(true)
     window.setTimeout(() => setCopied(false), 1600)
   }
 
   const reset = () => {
     eventSource.current?.close()
+    storeSession(null)
     setJob(null)
-    setFile(null)
+    setBatch(null)
+    setFiles([])
     setError('')
     setCopied(false)
     setActivePage(1)
     setView('preview')
     if (fileInput.current) fileInput.current.value = ''
+  }
+
+  const selectJob = (selected: Job) => {
+    setJob(selected)
+    setActivePage(1)
+    setView('preview')
   }
 
   const selectPage = (pageNumber: number) => {
@@ -260,8 +453,8 @@ function App() {
         </div>
       </header>
 
-      <main className={job ? 'job-main' : 'landing-main'}>
-        {!job && (
+      <main className={sessionReady && job ? 'job-main' : 'landing-main'}>
+        {sessionReady && !job && (
           <section className="intro">
             <p className="eyebrow">{text.eyebrow}</p>
             <h1>{text.heroPrimary}<br /><span>{text.heroSecondary}</span></h1>
@@ -271,31 +464,67 @@ function App() {
 
         {error && <div className="alert" role="alert"><span>!</span><p>{error}</p><button onClick={() => setError('')} aria-label={text.closeError}>×</button></div>}
 
-        {!job ? (
+        {!sessionReady ? (
+          <section className="restore-session" aria-live="polite">
+            <i />
+            <p>{text.restoringSession}</p>
+          </section>
+        ) : !job ? (
           <form className="upload-card" onSubmit={(event) => void submit(event)}>
+            <div className="upload-mode" role="group" aria-label={text.files}>
+              <button
+                type="button"
+                className={uploadMode === 'single' ? 'active' : ''}
+                aria-pressed={uploadMode === 'single'}
+                onClick={() => { setUploadMode('single'); setFiles([]); if (fileInput.current) fileInput.current.value = '' }}
+              >{text.singleMode}</button>
+              <button
+                type="button"
+                className={uploadMode === 'batch' ? 'active' : ''}
+                aria-pressed={uploadMode === 'batch'}
+                onClick={() => { setUploadMode('batch'); setFiles([]); if (fileInput.current) fileInput.current.value = '' }}
+              >{text.batchMode}</button>
+            </div>
             <div
-              className={`dropzone ${dragging ? 'is-dragging' : ''} ${file ? 'has-file' : ''}`}
+              className={`dropzone ${dragging ? 'is-dragging' : ''} ${files.length > 0 ? 'has-file' : ''}`}
               onDragEnter={(event) => { event.preventDefault(); setDragging(true) }}
               onDragOver={(event) => event.preventDefault()}
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
-              onClick={() => !file && fileInput.current?.click()}
+              onClick={() => (files.length === 0 || uploadMode === 'batch') && fileInput.current?.click()}
               role="button"
               tabIndex={0}
               onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') fileInput.current?.click() }}
             >
-              <input ref={fileInput} type="file" accept={ACCEPTED} onChange={(event: ChangeEvent<HTMLInputElement>) => chooseFile(event.target.files?.[0] ?? null)} />
-              {file ? (
-                <div className="selected-file">
-                  <div className="file-icon">{file.name.split('.').pop()?.slice(0, 4).toUpperCase()}</div>
-                  <div><strong>{file.name}</strong><span>{formatFileSize(file.size)}</span></div>
-                  <button type="button" onClick={(event) => { event.stopPropagation(); chooseFile(null) }} aria-label={text.removeFile}>×</button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept={ACCEPTED}
+                multiple={uploadMode === 'batch'}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => chooseFiles(Array.from(event.target.files ?? []))}
+              />
+              {files.length > 0 ? (
+                <div className="selected-files">
+                  {files.map((selected, index) => (
+                    <div className="selected-file" key={`${selected.name}-${selected.size}-${index}`}>
+                      <div className="file-icon">{selected.name.split('.').pop()?.slice(0, 4).toUpperCase()}</div>
+                      <div><strong>{selected.name}</strong><span>{formatFileSize(selected.size)}</span></div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))
+                        }}
+                        aria-label={`${text.removeFile}: ${selected.name}`}
+                      >×</button>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className="drop-content">
                   <div className="upload-icon" aria-hidden="true">↑</div>
-                  <strong>{text.dropFile}</strong>
-                  <span>{text.chooseFile}</span>
+                  <strong>{uploadMode === 'batch' ? text.dropFiles : text.dropFile}</strong>
+                  <span>{uploadMode === 'batch' ? text.chooseFiles : text.chooseFile}</span>
                   <small>{text.formats}</small>
                 </div>
               )}
@@ -326,25 +555,53 @@ function App() {
                 </label>
               </div>
             </details>
-            <button className="primary-button" type="submit" disabled={!file || uploading}>
-              {uploading ? text.uploading : text.startOcr}<span>→</span>
+            <button className="primary-button" type="submit" disabled={files.length === 0 || uploading}>
+              {uploading ? text.uploading : uploadMode === 'batch' ? text.startBatch : text.startOcr}<span>→</span>
             </button>
           </form>
         ) : (
           <section className="workspace">
+            {batch && (
+              <div className="document-tabs" role="tablist" aria-label={text.files}>
+                {batch.jobs.map((item, index) => (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={item.id === job.id}
+                    className={`${item.id === job.id ? 'active' : ''} status-${item.status}`}
+                    onClick={() => selectJob(item)}
+                    key={item.id}
+                    title={item.filename}
+                  >
+                    <i />
+                    <span>{index + 1}. {item.filename}</span>
+                  </button>
+                ))}
+                {batchHasResult && (
+                  <a className="batch-export" href={`/api/batches/${batch.id}/export`}>
+                    {text.allResultsZip}
+                  </a>
+                )}
+              </div>
+            )}
             <div className="job-header">
-              <div><p className="eyebrow">{text.currentJob}</p><h2>{job.filename}</h2><span>{jobMessage(job, language)}</span></div>
+              <div>
+                <p className="eyebrow">{batch ? `${text.currentBatch} · ${batch.completed_files + batch.failed_files}/${batch.total_files}` : text.currentJob}</p>
+                <h2>{job.filename}</h2>
+                <span>{batch ? batchMessage(batch, language) : jobMessage(job, language)}</span>
+              </div>
               <div className="job-actions">
                 {busy && <button className="secondary-button" onClick={() => void cancel()}>{text.cancel}</button>}
                 {!busy && <button className="secondary-button" onClick={reset}>{text.newFile}</button>}
               </div>
             </div>
-            <div className="progress-track"><i style={{ width: `${Math.round(job.progress * 100)}%` }} /></div>
+            <div className="progress-track"><i style={{ width: `${Math.round((batch?.progress ?? job.progress) * 100)}%` }} /></div>
             <div className="metrics">
-              <span><strong>{Math.round(job.progress * 100)}%</strong> {text.progress}</span>
+              <span><strong>{Math.round((batch?.progress ?? job.progress) * 100)}%</strong> {text.progress}</span>
+              {batch && <span><strong>{batch.completed_files + batch.failed_files}/{batch.total_files}</strong> {text.files}</span>}
               <span><strong>{job.completed_pages + job.failed_pages}/{job.total_pages || '—'}</strong> {text.pages}</span>
               {job.total_pages > 0 && <span className="current-page"><strong>{text.page} {activePage}</strong> / {job.total_pages}</span>}
-              <span className={`status-pill status-${job.status}`}>{statusLabel(job.status, language)}</span>
+              <span className={`status-pill status-${batch?.status ?? job.status}`}>{statusLabel(batch?.status ?? job.status, language)}</span>
             </div>
 
             {job.error && <div className="inline-error">{job.error}</div>}
@@ -358,7 +615,8 @@ function App() {
                 <div className="export-actions">
                   <button disabled={!hasResult} onClick={() => void copyResult()}>{copied ? text.copied : text.copy}</button>
                   {hasResult && job.id && <>
-                    <a href={`/api/jobs/${job.id}/export?format=markdown`}>.md</a>
+                    <a href={`/api/jobs/${job.id}/export?format=markdown`}>{text.rawMarkdown}</a>
+                    <a href={`/api/jobs/${job.id}/export?format=complete`}>{text.completeZip}</a>
                     <a href={`/api/jobs/${job.id}/export?format=text`}>.txt</a>
                     <a href={`/api/jobs/${job.id}/export?format=json`}>.json</a>
                   </>}
@@ -396,14 +654,14 @@ function App() {
                     ))}
                   </div>
                 )}
-                {hasResult && view === 'source' && <pre>{result}<span className={busy ? 'cursor' : ''} /></pre>}
+                {hasResult && view === 'source' && <pre>{rawResult}<span className={busy ? 'cursor' : ''} /></pre>}
               </div>
             </div>
           </section>
         )}
       </main>
 
-      {!job && <footer><span>Open OCR Control</span><span>{text.processingLocal}</span><a href="/api/docs">{text.api}</a></footer>}
+      {sessionReady && !job && <footer><span>Open OCR Control</span><span>{text.processingLocal}</span><a href="/api/docs">{text.api}</a></footer>}
     </div>
   )
 }

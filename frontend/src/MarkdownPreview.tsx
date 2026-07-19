@@ -22,9 +22,16 @@ interface MarkdownPreviewProps {
   children: string
 }
 
+function safeUrlTransform(url: string, key: string): string {
+  if (key !== 'src') return url
+  return url.startsWith('/api/jobs/') && url.includes('/assets/') ? url : ''
+}
+
 export default function MarkdownPreview({ children }: MarkdownPreviewProps) {
   return (
     <ReactMarkdown
+      urlTransform={safeUrlTransform}
+      components={{ img: ({ src, ...props }) => src ? <img src={src} {...props} /> : null }}
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[
         rehypeRaw,

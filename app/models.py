@@ -22,10 +22,34 @@ class JobStatus(StrEnum):
 TERMINAL_STATUSES = {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
 
 
+class BatchStatus(StrEnum):
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+BATCH_TERMINAL_STATUSES = {
+    BatchStatus.COMPLETED,
+    BatchStatus.FAILED,
+    BatchStatus.CANCELLED,
+}
+
+
+class PageAsset(BaseModel):
+    filename: str
+    media_type: str = "image/jpeg"
+    width: int
+    height: int
+
+
 class PageResult(BaseModel):
     page: int
     status: str = "pending"
     markdown: str = ""
+    raw_markdown: str = ""
+    assets: list[PageAsset] = Field(default_factory=list)
     error: str | None = None
     elapsed_seconds: float | None = None
 
@@ -50,6 +74,23 @@ class JobPublic(BaseModel):
     pages: list[PageResult]
     options: JobOptions
     error: str | None = None
+    batch_id: str | None = None
+    last_event_id: int
+
+
+class BatchPublic(BaseModel):
+    id: str
+    status: BatchStatus
+    message: str
+    progress: float
+    created_at: datetime
+    updated_at: datetime
+    total_files: int
+    completed_files: int
+    failed_files: int
+    current_job_id: str | None = None
+    last_event_id: int
+    jobs: list[JobPublic]
 
 
 class OcrStatus(BaseModel):
@@ -86,6 +127,7 @@ class Job:
     error: str | None = None
     events: list[EventRecord] = field(default_factory=list)
     next_event_id: int = 1
+    batch_id: str | None = None
 
     def public(self) -> JobPublic:
         return JobPublic(
@@ -102,4 +144,39 @@ class Job:
             pages=self.pages,
             options=self.options,
             error=self.error,
+            batch_id=self.batch_id,
+            last_event_id=self.next_event_id - 1,
+        )
+
+
+@dataclass(slots=True)
+class Batch:
+    id: str
+    job_ids: list[str]
+    work_dir: Path
+    status: BatchStatus = BatchStatus.QUEUED
+    message: str = "Batch accepted"
+    progress: float = 0.0
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    completed_files: int = 0
+    failed_files: int = 0
+    current_job_id: str | None = None
+    events: list[EventRecord] = field(default_factory=list)
+    next_event_id: int = 1
+
+    def public(self, jobs: list[JobPublic]) -> BatchPublic:
+        return BatchPublic(
+            id=self.id,
+            status=self.status,
+            message=self.message,
+            progress=self.progress,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+            total_files=len(self.job_ids),
+            completed_files=self.completed_files,
+            failed_files=self.failed_files,
+            current_job_id=self.current_job_id,
+            last_event_id=self.next_event_id - 1,
+            jobs=jobs,
         )
