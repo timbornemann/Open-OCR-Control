@@ -103,7 +103,7 @@ describe('App workspace', () => {
     expect(scrollIntoView).toHaveBeenCalled()
   })
 
-  it('uploads multiple files as one sequential batch and exposes document tabs', async () => {
+  it('adds selections and dropped files to one sequential batch without replacing existing files', async () => {
     const makeJob = (id: string, filename: string): Job => ({
       id,
       filename,
@@ -144,19 +144,31 @@ describe('App workspace', () => {
     const { container } = render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'Batch mode' }))
     const input = container.querySelector<HTMLInputElement>('input[type="file"]')
+    const first = new File(['one'], 'one.pdf', { type: 'application/pdf', lastModified: 1 })
+    const second = new File(['two'], 'two.pdf', { type: 'application/pdf', lastModified: 2 })
+    const third = new File(['three'], 'three.pdf', { type: 'application/pdf', lastModified: 3 })
+    const fourth = new File(['four'], 'four.pdf', { type: 'application/pdf', lastModified: 4 })
     fireEvent.change(input!, {
       target: {
-        files: [
-          new File(['one'], 'one.pdf', { type: 'application/pdf' }),
-          new File(['two'], 'two.pdf', { type: 'application/pdf' }),
-        ],
+        files: [first, second],
       },
     })
+    expect(screen.getByRole('button', { name: 'Add more files' })).toBeInTheDocument()
+
+    fireEvent.change(input!, { target: { files: [third] } })
+    fireEvent.drop(container.querySelector('.dropzone')!, {
+      dataTransfer: { files: [fourth, first] },
+    })
+
+    expect(screen.getByText('one.pdf')).toBeInTheDocument()
+    expect(screen.getByText('two.pdf')).toBeInTheDocument()
+    expect(screen.getByText('three.pdf')).toBeInTheDocument()
+    expect(screen.getByText('four.pdf')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Start batch →' }))
 
     expect(await screen.findByRole('tab', { name: '1. one.pdf' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '2. two.pdf' })).toBeInTheDocument()
-    expect(uploadedFiles).toBe(2)
+    expect(uploadedFiles).toBe(4)
   })
 
   it('follows the active batch document and ignores late pages from the finished document', async () => {

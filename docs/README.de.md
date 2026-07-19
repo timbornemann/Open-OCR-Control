@@ -23,7 +23,7 @@ containerisiert; Dokumente und Modellausgaben verbleiben auf dem Host.
 - parallele, geordnete Seitenverarbeitung mit einstellbarer Geschwindigkeit und Qualität
 - bereinigte Rich-Preview für Markdown, HTML-/GFM-Tabellen und LaTeX-Formeln
 - lokale Vorschau der vom Modell markierten Bildbereiche samt Bildern im vollständigen ZIP
-- sequenzieller Batch-Modus mit mehreren Uploads, Dokument-Tabs und gemeinsamem ZIP
+- sequenzieller Batch-Modus mit ergänzender Dateiauswahl/Ablage, Dokument-Tabs und gemeinsamem ZIP
 - viewportfüllender Arbeitsbereich mit automatisch mitlaufender aktueller Seitenanzeige
 - Kopieren sowie Export als rohe `.md`, vollständige `.zip`, `.txt` und strukturiertes `.json`
 - bedarfsgesteuertes Starten und Stoppen des festen Unlimited-OCR-Containers

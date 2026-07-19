@@ -42,7 +42,9 @@ Indizes ab. Ein weiterer Test stellt sicher, dass einzelne OCR-Zeilenumbrüche i
 Inhaltsverzeichnissen und Literaturangaben als sichtbare Umbrüche erhalten bleiben.
 Der Batch-Race-Test prüft außerdem den Wechsel auf das nächste aktive Dokument und stellt sicher,
 dass verspätete Seitenereignisse eines bereits abgeschlossenen Dokuments die aktuelle
-Dokumentauswahl und Seitenanzeige nicht zurücksetzen.
+Dokumentauswahl und Seitenanzeige nicht zurücksetzen. Der Upload-Test kombiniert eine erste
+Mehrfachauswahl, eine spätere weitere Auswahl und zusätzliche Drag-and-drop-Dateien in stabiler
+Reihenfolge; identische Dateien werden dabei nicht doppelt aufgenommen.
 
 ## Container-Smoke-Test
 

@@ -80,6 +80,12 @@ main { flex: 1 1 auto; min-height: 0; }
 .selected-files { width: min(620px, 88%); max-height: 245px; padding: 8px; display: grid; gap: 8px; overflow-y: auto; scrollbar-gutter: stable; }
 .selected-files .selected-file { width: 100%; min-width: 0; box-sizing: border-box; padding: 11px 13px; box-shadow: 0 8px 24px rgba(0,0,0,.055); }
 .selected-files .file-icon { width: 37px; height: 45px; flex: 0 0 37px; }
+.add-files { width: 100%; min-height: 54px; border: 1px dashed #aaa9a4; background: rgba(250,250,248,.82); color: var(--ink); display: flex; align-items: center; justify-content: center; gap: 11px; cursor: pointer; }
+.add-files:hover, .dropzone.is-dragging .add-files { border-color: var(--black); background: var(--paper); }
+.add-files > span:first-child { width: 25px; height: 25px; border: 1px solid var(--black); border-radius: 50%; display: grid; place-items: center; font-size: 17px; line-height: 1; }
+.add-files > span:last-child { display: flex; flex-direction: column; align-items: flex-start; text-align: left; }
+.add-files strong { font-size: 11px; }
+.add-files small { color: var(--muted); font-size: 9px; margin-top: 2px; }
 
 .settings { border-top: 1px solid var(--line); margin-top: 12px; }
 .settings summary { list-style: none; padding: 15px 4px 5px; cursor: pointer; display: flex; justify-content: space-between; font-size: 11px; font-weight: 650; }

@@ -8,6 +8,10 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
 const MarkdownPreview = lazy(() => import('./MarkdownPreview'))
 export const SESSION_STORAGE_KEY = 'open-ocr-control-session'
 
+function fileIdentity(file: File): string {
+  return `${file.name}\u0000${file.size}\u0000${file.lastModified}\u0000${file.type}`
+}
+
 type StoredSession =
   | { kind: 'job'; id: string }
   | { kind: 'batch'; id: string; selected_job_id: string | null }
@@ -328,7 +332,17 @@ function App() {
     setJob(null)
     batchState.current = null
     setBatch(null)
-    setFiles(uploadMode === 'single' ? selected.slice(0, 1) : selected)
+    setFiles((current) => {
+      if (uploadMode === 'single') return selected.slice(0, 1)
+      const known = new Set(current.map(fileIdentity))
+      const added = selected.filter((file) => {
+        const identity = fileIdentity(file)
+        if (known.has(identity)) return false
+        known.add(identity)
+        return true
+      })
+      return [...current, ...added]
+    })
   }
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -541,7 +555,10 @@ function App() {
                 type="file"
                 accept={ACCEPTED}
                 multiple={uploadMode === 'batch'}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => chooseFiles(Array.from(event.target.files ?? []))}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  chooseFiles(Array.from(event.target.files ?? []))
+                  event.currentTarget.value = ''
+                }}
               />
               {files.length > 0 ? (
                 <div className="selected-files">
@@ -559,6 +576,20 @@ function App() {
                       >×</button>
                     </div>
                   ))}
+                  {uploadMode === 'batch' && (
+                    <button
+                      type="button"
+                      className="add-files"
+                      aria-label={text.addFiles}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        fileInput.current?.click()
+                      }}
+                    >
+                      <span aria-hidden="true">+</span>
+                      <span><strong>{text.addFiles}</strong><small>{text.dropMoreFiles}</small></span>
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="drop-content">

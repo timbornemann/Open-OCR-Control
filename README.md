@@ -22,7 +22,7 @@ the trusted local network can use it. The vLLM/Unlimited-OCR service stays local
 - Parallel, ordered page processing with adjustable speed and quality
 - A sanitized rich preview for Markdown, HTML tables, GFM tables, and LaTeX formulas
 - Local previews of figure regions marked by the model, with those images included in complete ZIPs
-- A sequential batch mode with multiple uploads, per-document tabs, and one combined ZIP
+- A sequential batch mode with additive file selection/drop, per-document tabs, and one combined ZIP
 - A viewport-filling workspace with an automatically following current-page indicator
 - Copying plus raw `.md`, complete `.zip`, `.txt`, and structured `.json` exports
 - On-demand start and stop control for the dedicated Unlimited-OCR container
