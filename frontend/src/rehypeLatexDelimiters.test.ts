@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { splitLatexText } from './rehypeLatexDelimiters'
+import { protectLatexDelimiters, splitLatexText } from './rehypeLatexDelimiters'
 
 describe('splitLatexText', () => {
   it('recognizes explicit inline and display delimiters', () => {
@@ -9,6 +9,21 @@ describe('splitLatexText', () => {
       { type: 'text', value: ' and ', display: false },
       { type: 'math', value: 'y = 2', display: true },
       { type: 'text', value: '.', display: false },
+    ])
+  })
+
+  it('protects markdown punctuation inside explicit OCR formulas', () => {
+    const formula = String.raw`\[\alpha_ {t j} = \frac{q_t * k_j}{\sqrt{d_k}}\]`
+    const protectedFormula = protectLatexDelimiters(formula)
+
+    expect(protectedFormula).not.toContain('_')
+    expect(protectedFormula).not.toContain('*')
+    expect(splitLatexText(protectedFormula)).toEqual([
+      {
+        type: 'math',
+        value: String.raw`\alpha_ {t j} = \frac{q_t * k_j}{\sqrt{d_k}}`,
+        display: true,
+      },
     ])
   })
 

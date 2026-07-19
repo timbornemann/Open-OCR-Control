@@ -69,6 +69,7 @@ function App() {
   const [sessionReady, setSessionReady] = useState(() => storedSession === null)
   const eventSource = useRef<EventSource | null>(null)
   const selectedJobId = useRef<string | null>(null)
+  const batchState = useRef<Batch | null>(null)
   const fileInput = useRef<HTMLInputElement | null>(null)
   const pageStrip = useRef<HTMLDivElement | null>(null)
   const resultContent = useRef<HTMLDivElement | null>(null)
@@ -107,16 +108,22 @@ function App() {
 
   useEffect(() => {
     if (job && TERMINAL.has(job.status) && job.total_pages > 0) {
+      if (selectedJobId.current !== job.id) return
       setActivePage(Math.min(Math.max(job.completed_pages + job.failed_pages, 1), job.total_pages))
     }
-  }, [job?.completed_pages, job?.failed_pages, job?.status, job?.total_pages])
+  }, [job?.completed_pages, job?.failed_pages, job?.id, job?.status, job?.total_pages])
 
   const mutateJob = useCallback((jobId: string, update: (value: Job) => Job) => {
     setJob((current) => current?.id === jobId ? update(current) : current)
-    setBatch((current) => current ? {
-      ...current,
-      jobs: current.jobs.map((item) => item.id === jobId ? update(item) : item),
-    } : current)
+    setBatch((current) => {
+      if (!current) return current
+      const next = {
+        ...current,
+        jobs: current.jobs.map((item) => item.id === jobId ? update(item) : item),
+      }
+      batchState.current = next
+      return next
+    })
   }, [])
 
   const updatePage = useCallback((jobId: string, pageNumber: number, update: (page: PageResult) => PageResult) => {
@@ -140,8 +147,13 @@ function App() {
     const response = await fetch(`/api/batches/${batchId}`)
     if (!response.ok) return
     const loaded = (await response.json()) as Batch
+    batchState.current = loaded
     setBatch(loaded)
-    setJob((current) => loaded.jobs.find((item) => item.id === current?.id) ?? loaded.jobs[0] ?? null)
+    const selected = loaded.jobs.find((item) => item.id === selectedJobId.current)
+      ?? loaded.jobs[0]
+      ?? null
+    selectedJobId.current = selected?.id ?? null
+    setJob(selected)
   }, [])
 
   const handleJobEvent = useCallback((jobId: string, name: string, payload: unknown) => {
@@ -217,7 +229,23 @@ function App() {
 
     const updateBatch = (event: Event) => {
       const data = parseEvent<Partial<Batch>>(event)
-      setBatch((current) => current ? { ...current, ...data, jobs: current.jobs } : current)
+      const current = batchState.current
+      if (!current) return
+      const activeJobChanged = data.current_job_id !== undefined
+        && data.current_job_id !== current.current_job_id
+      const next = { ...current, ...data, jobs: current.jobs }
+      batchState.current = next
+      setBatch(next)
+
+      if (activeJobChanged && data.current_job_id) {
+        const activeJob = next.jobs.find((item) => item.id === data.current_job_id)
+        if (activeJob) {
+          selectedJobId.current = activeJob.id
+          setJob(activeJob)
+          setActivePage(1)
+          setView('preview')
+        }
+      }
     }
     for (const name of ['batch_status', 'batch_progress']) source.addEventListener(name, updateBatch)
     source.addEventListener('job_event', (event) => {
@@ -258,6 +286,7 @@ function App() {
           const selected = restored.jobs.find((item) => item.id === storedSession.selected_job_id)
             ?? restored.jobs[0]
             ?? null
+          batchState.current = restored
           setBatch(restored)
           setJob(selected)
           selectedJobId.current = selected?.id ?? null
@@ -266,6 +295,7 @@ function App() {
           const restored = (await response.json()) as Job
           if (!active) return
           setBatch(null)
+          batchState.current = null
           setJob(restored)
           selectedJobId.current = restored.id
           if (!TERMINAL.has(restored.status)) connectEvents(restored.id, restored.last_event_id)
@@ -296,6 +326,7 @@ function App() {
     storeSession(null)
     setError('')
     setJob(null)
+    batchState.current = null
     setBatch(null)
     setFiles(uploadMode === 'single' ? selected.slice(0, 1) : selected)
   }
@@ -326,6 +357,7 @@ function App() {
       setActivePage(1)
       if (uploadMode === 'batch') {
         const created = (await response.json()) as Batch
+        batchState.current = created
         setBatch(created)
         setJob(created.jobs[0] ?? null)
         selectedJobId.current = created.jobs[0]?.id ?? null
@@ -333,6 +365,7 @@ function App() {
         connectBatchEvents(created.id, created.last_event_id)
       } else {
         const created = (await response.json()) as Job
+        batchState.current = null
         setBatch(null)
         setJob(created)
         selectedJobId.current = created.id
@@ -366,8 +399,13 @@ function App() {
     if (response.ok) {
       if (batch) {
         const cancelled = (await response.json()) as Batch
+        batchState.current = cancelled
         setBatch(cancelled)
-        setJob(cancelled.jobs.find((item) => item.id === job.id) ?? cancelled.jobs[0] ?? null)
+        const selected = cancelled.jobs.find((item) => item.id === job.id)
+          ?? cancelled.jobs[0]
+          ?? null
+        selectedJobId.current = selected?.id ?? null
+        setJob(selected)
       } else {
         setJob((await response.json()) as Job)
       }
@@ -390,6 +428,7 @@ function App() {
   const reset = () => {
     eventSource.current?.close()
     storeSession(null)
+    batchState.current = null
     setJob(null)
     setBatch(null)
     setFiles([])
@@ -401,6 +440,7 @@ function App() {
   }
 
   const selectJob = (selected: Job) => {
+    selectedJobId.current = selected.id
     setJob(selected)
     setActivePage(1)
     setView('preview')

@@ -24,7 +24,7 @@ ruff check app tests                keine Befunde
 mypy app                            keine Befunde (strict)
 pytest                              12 Tests erfolgreich
 npm run check                       TypeScript erfolgreich
-npm test                            17 Tests erfolgreich
+npm test                            21 Tests erfolgreich
 npm run build                       Vite-Produktionsbuild erfolgreich
 pip-audit --local --skip-editable   keine bekannte Schwachstelle
 npm audit --audit-level=high        keine bekannte Schwachstelle
@@ -36,7 +36,13 @@ Die Tests decken Grounding-Token-Streaming über Chunkgrenzen, sichere Bildbox-A
 -Zuschnitte, PDF-/Bildrendering, vLLM-Payload/SSE, parallele Seiten, sequenzielle Dokument-Batches,
 Roh-/Rich-Markdown und portable ZIP-Exporte ab.
 Frontend-Tests prüfen zusätzlich die Wiederherstellung eines laufenden Jobs ab der letzten Event-ID
-sowie eines fertigen Batches mit ausgewähltem Dokument-Tab.
+sowie eines fertigen Batches mit ausgewähltem Dokument-Tab. Ein Regressionstest deckt explizite
+OCR-LaTeX-Blöcke mit Markdown-Sonderzeichen, tief verschachtelten Brüchen und getrennt gesetzten
+Indizes ab. Ein weiterer Test stellt sicher, dass einzelne OCR-Zeilenumbrüche in
+Inhaltsverzeichnissen und Literaturangaben als sichtbare Umbrüche erhalten bleiben.
+Der Batch-Race-Test prüft außerdem den Wechsel auf das nächste aktive Dokument und stellt sicher,
+dass verspätete Seitenereignisse eines bereits abgeschlossenen Dokuments die aktuelle
+Dokumentauswahl und Seitenanzeige nicht zurücksetzen.
 
 ## Container-Smoke-Test
 
@@ -79,6 +85,11 @@ vLLM HTTP-Status: 200
 
 Der Wert ist ein Funktionsnachweis für eine sehr einfache Seite, kein allgemeiner Benchmark.
 Komplexität, Auflösung, Tokenzahl, Parallelität und GPU beeinflussen die Laufzeit erheblich.
+
+Nach der Korrektur der Batch-Seitenanzeige wurde zusätzlich ein realer Zwei-Bilder-Batch im
+Browser verarbeitet. Beim Übergang auf die zweite Datei wechselten Dokument-Tab, Überschrift und
+Seitenanzeige gemeinsam auf den neuen aktiven Job und blieben dort bis zum erfolgreichen
+Batch-Abschluss; die bereits fertige erste Datei setzte den Index nicht zurück.
 
 Am 19. Juli 2026 wurde zusätzlich ein Batch aus zwei synthetischen Einseiten-PDFs über die reale
 GPU-Pipeline verarbeitet. Beide Jobs liefen in Uploadreihenfolge und endeten erfolgreich; die

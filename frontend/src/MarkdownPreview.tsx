@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import 'katex/dist/katex.min.css'
 import rehypeLatexDelimiters, { protectLatexDelimiters } from './rehypeLatexDelimiters'
+import rehypePreserveLineBreaks from './rehypePreserveLineBreaks'
 
 const sanitizeSchema = {
   ...defaultSchema,
@@ -37,6 +38,7 @@ export default function MarkdownPreview({ children }: MarkdownPreviewProps) {
         rehypeRaw,
         [rehypeSanitize, sanitizeSchema],
         rehypeLatexDelimiters,
+        rehypePreserveLineBreaks,
         [rehypeKatex, { strict: 'ignore' }],
       ]}
     >

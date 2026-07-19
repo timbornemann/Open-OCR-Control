@@ -159,6 +159,97 @@ describe('App workspace', () => {
     expect(uploadedFiles).toBe(2)
   })
 
+  it('follows the active batch document and ignores late pages from the finished document', async () => {
+    const makeJob = (id: string, filename: string, status: Job['status'], totalPages: number): Job => ({
+      id,
+      filename,
+      status,
+      message: '',
+      progress: 0,
+      total_pages: totalPages,
+      completed_pages: 0,
+      failed_pages: 0,
+      pages: Array.from({ length: totalPages }, (_, index) => ({
+        page: index + 1,
+        status: 'pending',
+        markdown: '',
+        raw_markdown: '',
+        assets: [],
+        error: null,
+        elapsed_seconds: null,
+      })),
+      error: null,
+      batch_id: 'batch-race',
+      last_event_id: 1,
+    })
+    const batch: Batch = {
+      id: 'batch-race',
+      status: 'processing',
+      message: 'Processing document 1',
+      progress: 0,
+      total_files: 2,
+      completed_files: 0,
+      failed_files: 0,
+      current_job_id: 'job-1',
+      last_event_id: 2,
+      jobs: [
+        makeJob('job-1', 'one.pdf', 'processing', 3),
+        makeJob('job-2', 'two.pdf', 'queued', 5),
+      ],
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === '/api/ocr/status') return response({ state: 'ready', ready: true, managed: true, message: '', model: '', container_status: 'running' })
+      if (url === '/api/batches') return response(batch)
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const { container } = render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Batch mode' }))
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')
+    fireEvent.change(input!, {
+      target: {
+        files: [
+          new File(['one'], 'one.pdf', { type: 'application/pdf' }),
+          new File(['two'], 'two.pdf', { type: 'application/pdf' }),
+        ],
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start batch →' }))
+    expect(await screen.findByRole('heading', { name: 'one.pdf' })).toBeInTheDocument()
+
+    await act(async () => MockEventSource.latest?.emit('job_event', {
+      job_id: 'job-1',
+      event: 'job_status',
+      data: { status: 'completed', progress: 1, completed_pages: 3 },
+    }))
+    await act(async () => MockEventSource.latest?.emit('batch_progress', {
+      current_job_id: 'job-2',
+      completed_files: 1,
+      progress: 0.5,
+      message: 'Processing document 2',
+    }))
+
+    expect(await screen.findByRole('heading', { name: 'two.pdf' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '2. two.pdf' })).toHaveAttribute('aria-selected', 'true')
+
+    await act(async () => MockEventSource.latest?.emit('job_event', {
+      job_id: 'job-2',
+      event: 'page_started',
+      data: { page: 4 },
+    }))
+    const activePage = screen.getByRole('button', { name: 'Page 4' })
+    await waitFor(() => expect(activePage).toHaveAttribute('aria-current', 'page'))
+
+    await act(async () => MockEventSource.latest?.emit('job_event', {
+      job_id: 'job-1',
+      event: 'page_started',
+      data: { page: 2 },
+    }))
+    expect(activePage).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('heading', { name: 'two.pdf' })).toBeInTheDocument()
+  })
+
   it('restores a running job and resumes events after the server snapshot', async () => {
     const job: Job = {
       id: 'running-job',
